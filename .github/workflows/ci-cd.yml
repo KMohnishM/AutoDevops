@@ -1,0 +1,108 @@
+name: Automated DevOps Pipeline
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  security-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for SonarQube
+
+      # Set up Node.js
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # Install dependencies
+      - name: Install dependencies
+        run: npm ci
+
+      # Run ESLint
+      - name: Run ESLint
+        run: npx eslint . || true
+
+      # Run SonarQube for SAST
+      - name: Run SonarQube
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}
+            -Dsonar.organization=${{ github.repository_owner }}-org
+            -Dsonar.host.url=https://sonarcloud.io
+
+      # Run dependency checks
+      - name: Dependency check
+        run: npm audit --production || true
+
+      # Check for secrets
+      - name: Check for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Run tests
+      - name: Run tests
+        run: npm test || true
+
+      # Build the app
+      - name: Build app
+        run: npm run build
+
+      # Determine the app type (Next.js or React)
+      - name: Determine app type
+        id: app-type
+        run: |
+          if grep -q "\"next\":" "package.json"; then
+            echo "type=nextjs" >> $GITHUB_OUTPUT
+          else
+            echo "type=react" >> $GITHUB_OUTPUT
+          fi
+
+      # Deploy to Vercel (for Next.js)
+      - name: Deploy to Vercel
+        if: steps.app-type.outputs.type == 'nextjs'
+        uses: amondnet/vercel-action@v20
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'
+
+      # Deploy to AWS ECS (for React)
+      - name: Configure AWS credentials
+        if: steps.app-type.outputs.type == 'react'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Deploy to AWS ECS
+        if: steps.app-type.outputs.type == 'react'
+        run: |
+          cd terraform
+          terraform init
+          terraform apply -auto-approve
+
+      # Setup Sentry release
+      - name: Sentry Release
+        uses: getsentry/action-release@v1
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        with:
+          environment: production 

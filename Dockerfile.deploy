@@ -1,0 +1,7 @@
+FROM node:20-slim
+
+WORKDIR /app
+COPY . .
+
+# Run the deployment
+CMD ["npm", "run", "deploy"] 

@@ -1,0 +1,13 @@
+{
+  "name": "deploy-cli",
+  "version": "1.0.0",
+  "description": "One-click deployment CLI for Next.js/React apps",
+  "main": "index.js",
+  "bin": {
+    "deploy-cli": "./index.js"
+  },
+  "dependencies": {
+    "commander": "^11.1.0",
+    "inquirer": "^8.2.6"
+  }
+} 
