@@ -21,22 +21,54 @@ try {
   
   console.log(`📋 Detected ${isNextJs ? 'Next.js' : 'React'} application.`);
   
-  // Stage, commit and push changes
-  console.log('📤 Staging changes...');
-  execSync('git add .', { stdio: 'inherit' });
+  // Check for changes
+  const gitStatus = execSync('git status --porcelain').toString();
   
-  console.log('💾 Committing changes...');
-  execSync('git commit -m "Automated deployment"', { stdio: 'inherit' });
+  if (gitStatus.length === 0) {
+    console.log('ℹ️ No changes detected in the working directory.');
+    console.log('🔄 Proceeding with deployment of current state...');
+  } else {
+    // Stage and commit changes
+    console.log('📤 Staging changes...');
+    execSync('git add .', { stdio: 'inherit' });
+    
+    console.log('💾 Committing changes...');
+    try {
+      execSync('git commit -m "Automated deployment"', { stdio: 'inherit' });
+    } catch (commitError) {
+      // If commit fails due to no changes, continue
+      if (!commitError.message.includes('nothing to commit')) {
+        throw commitError;
+      }
+    }
+  }
   
-  // Check if remote exists before pushing
+  // Check if remote exists and handle pushing
   try {
-    execSync('git remote -v', { stdio: 'pipe' });
+    const remotes = execSync('git remote -v', { stdio: 'pipe' }).toString();
+    if (!remotes.includes('origin')) {
+      throw new Error('No remote repository configured');
+    }
+    
     console.log('🚀 Pushing to remote repository...');
-    execSync('git push -u origin main', { stdio: 'inherit' });
+    try {
+      execSync('git push -u origin main', { stdio: 'inherit' });
+    } catch (pushError) {
+      if (pushError.message.includes('rejected')) {
+        console.log('⚠️ Remote has changes. Pulling latest changes...');
+        execSync('git pull origin main --rebase', { stdio: 'inherit' });
+        execSync('git push -u origin main', { stdio: 'inherit' });
+      } else {
+        throw pushError;
+      }
+    }
   } catch (error) {
-    console.log('⚠️ No remote repository configured. Please add one with:');
-    console.log('git remote add origin YOUR_GITHUB_REPO_URL');
-    process.exit(1);
+    if (error.message.includes('No remote repository configured')) {
+      console.log('⚠️ No remote repository configured. Please add one with:');
+      console.log('git remote add origin YOUR_GITHUB_REPO_URL');
+      process.exit(1);
+    }
+    throw error;
   }
   
   console.log('✨ Deployment triggered successfully!');
