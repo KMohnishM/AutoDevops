@@ -40,7 +40,7 @@ jobs:
         with:
           args: >
             -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.event.repository.name }}
-            -Dsonar.organization=${{ github.repository_owner }}-org
+            -Dsonar.organization=${{ github.repository_owner }}
             -Dsonar.host.url=https://sonarcloud.io
 
       # Run dependency checks
