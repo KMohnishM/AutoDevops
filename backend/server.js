@@ -5,6 +5,8 @@ const { spawn } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
+const AdmZip = require('adm-zip');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -94,6 +96,61 @@ app.get('/logs', (req, res) => {
   req.on('close', () => {
     clients[jobId] = clients[jobId].filter(r => r !== res);
   });
+});
+
+// GET /github-logs?repo=owner/repo&branch=main
+app.get('/github-logs', async (req, res) => {
+  const { repo, branch = 'main' } = req.query;
+  const token = process.env.GITHUB_TOKEN;
+  if (!repo || !token) {
+    return res.status(400).json({ error: 'repo and GITHUB_TOKEN required' });
+  }
+  try {
+    // 1. Find the latest workflow run for the branch
+    const runsUrl = `https://api.github.com/repos/${repo}/actions/runs?branch=${branch}&per_page=1`;
+    const runsResp = await axios.get(runsUrl, {
+      headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'autodevops-platform' }
+    });
+    if (!runsResp.data.workflow_runs.length) {
+      return res.status(404).json({ error: 'No workflow runs found' });
+    }
+    const run = runsResp.data.workflow_runs[0];
+    // 2. Poll until the run is completed (max 2 min)
+    let status = run.status;
+    let conclusion = run.conclusion;
+    let pollCount = 0;
+    while (status !== 'completed' && pollCount < 24) {
+      await new Promise(r => setTimeout(r, 5000));
+      const pollResp = await axios.get(`https://api.github.com/repos/${repo}/actions/runs/${run.id}`, {
+        headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'autodevops-platform' }
+      });
+      status = pollResp.data.status;
+      conclusion = pollResp.data.conclusion;
+      pollCount++;
+    }
+    if (status !== 'completed') {
+      return res.status(202).json({ error: 'Workflow run not completed yet' });
+    }
+    // 3. Download the logs archive
+    const logsResp = await axios.get(`https://api.github.com/repos/${repo}/actions/runs/${run.id}/logs`, {
+      headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'autodevops-platform' },
+      responseType: 'arraybuffer'
+    });
+    // 4. Extract and concatenate all log files
+    const zip = new AdmZip(logsResp.data);
+    const entries = zip.getEntries();
+    let allLogs = '';
+    entries.forEach(entry => {
+      if (!entry.isDirectory && entry.entryName.endsWith('.txt')) {
+        allLogs += `\n--- ${entry.entryName} ---\n`;
+        allLogs += zip.readAsText(entry);
+      }
+    });
+    res.setHeader('Content-Type', 'text/plain');
+    res.send(allLogs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Helper: run a command and stream output

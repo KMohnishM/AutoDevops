@@ -38,7 +38,7 @@ export default function Home() {
           )}
         </div>
         <DeployForm onJobStart={setJobId} />
-        <LogViewer jobId={jobId} />
+        <LogViewer jobId={jobId} githubRepo="KMohnishM/AutoDevops" githubBranch="main" />
       </main>
       <footer className={styles.footer}>
         <a href="https://vercel.com" target="_blank" rel="noopener noreferrer">
